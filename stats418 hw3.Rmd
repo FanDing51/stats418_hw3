@@ -1,0 +1,387 @@
+---
+title: "Statistics 418 HW3"
+author: "Fan Ding (604172042)"
+date: "May 20th, 2017"
+output: html_document
+---
+
+Read in Data
+```{r}
+set.seed(1)
+library(readr)
+adult <- read_delim("~/Desktop/adult.txt", " ", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE, skip = 1)
+colnames(adult) <- c("id","age","workclass","final_weight","education","education_num","marital_status","occupation","relationship","race","sex","capital_gain","capital_loss","hours_per_week","natice_country","aw_over_50k")
+nrow(adult[which(adult$aw_over_50k == 1),])
+nrow(adult[which(adult$aw_over_50k == 0),])
+adult <- adult[,-1]
+k <- sample(c(1:48842), 34190, replace=FALSE)
+adult_train <- adult[k,]
+adult_test1 <- adult[-k,]
+m <- sample(c(1:14652), 4884, replace=FALSE)
+adult_validation <- adult_test1[m,]
+adult_test <- adult_test1[-m,]
+```
+
+Logistic Regression
+```{r}
+set.seed(1)
+# use glmnet package
+library(glmnet)
+library(ROCR)
+adult_lr <- Matrix::sparse.model.matrix(aw_over_50k~.-1, data = adult)
+adult_lr_train <- adult_lr[k,]
+adult_lr_t <- adult_lr[-k,]
+adult_lr_validation <- adult_lr_t[m,]
+adult_lr_test <- adult_lr_t[-m,]
+## lambda = 0
+lr1 <- glmnet(adult_lr_train, adult_train$aw_over_50k, family = "binomial", lambda = 0)
+phat_lr1 <- predict(lr1, newx = adult_lr_validation, type = "response")
+rocr_pred_lr1 <- prediction(phat_lr1, adult_validation$aw_over_50k)
+perf1 <- performance(rocr_pred_lr1, "tpr", "fpr")
+plot(perf1, main="Logistic Regression (lambda=0)", col="black")
+performance(rocr_pred_lr1, "auc")@y.values[[1]]
+## lambda = 0.15
+lr2 <- glmnet(adult_lr_train, adult_train$aw_over_50k, family = "binomial", lambda = 0.15)
+phat_lr2 <- predict(lr2, newx = adult_lr_validation, type = "response")
+rocr_pred_lr2 <- prediction(phat_lr2, adult_validation$aw_over_50k)
+perf2 <- performance(rocr_pred_lr2, "tpr", "fpr")
+plot(perf2, main="Logistic Regression (lambda=0.15)", col="black")
+performance(rocr_pred_lr2, "auc")@y.values[[1]]
+## lambda = 0.3
+lr3 <- glmnet(adult_lr_train, adult_train$aw_over_50k, family = "binomial", lambda = 0.3)
+phat_lr3 <- predict(lr3, newx = adult_lr_validation, type = "response")
+rocr_pred_lr3 <- prediction(phat_lr3, adult_validation$aw_over_50k)
+perf3 <- performance(rocr_pred_lr3, "tpr", "fpr")
+plot(perf3, main="Logistic Regression (lambda=0.3)", col="black")
+performance(rocr_pred_lr3, "auc")@y.values[[1]]
+## lambda = 0.5
+lr4 <- glmnet(adult_lr_train, adult_train$aw_over_50k, family = "binomial", lambda = 0.5)
+phat_lr4 <- predict(lr4, newx = adult_lr_validation, type = "response")
+rocr_pred_lr4 <- prediction(phat_lr4, adult_validation$aw_over_50k)
+perf4 <- performance(rocr_pred_lr4, "tpr", "fpr")
+plot(perf4, main="Logistic Regression (lambda=0.5)", col="black")
+performance(rocr_pred_lr4, "auc")@y.values[[1]]
+### Any lambda lorger than 0.5 give the auc result of 0.5.
+
+## test data
+### Using the validation data, we can tell the auc is the largest when the lambda is 0. So we use the model lr1 to apply to the test data.
+phat_lr1_test <- predict(lr1, newx = adult_lr_test, type = "response")
+rocr_pred_lr1_test <- prediction(phat_lr1_test, adult_test$aw_over_50k)
+perf1_test <- performance(rocr_pred_lr1_test, "tpr", "fpr")
+plot(perf1_test, main="Logistic Regression (lambda=0)", col="black")
+performance(rocr_pred_lr1_test, "auc")@y.values[[1]]
+## FP, TP trade off: when false positive rate is small, true positive rate is also small. If we increase false positive rate, true positive rate will also increase. When false positive rate becomes 0.3, true positive rate can reach around 0.9 and this is a relatively reasonable level.
+
+# use h2o package
+library(h2o)
+h2o.init(nthreads=-1)
+adult_lr_h2o <- h2o.importFile("/Users/apple/Desktop/adult.txt")
+colnames(adult_lr_h2o) <- c("id","age","workclass","final_weight","education","education_num","marital_status","occupation","relationship","race","sex","capital_gain","capital_loss","hours_per_week","natice_country","aw_over_50k")
+adult_lr_h2o <- adult_lr_h2o[,-1]
+adult_lr_h2o_split <- h2o.splitFrame(adult_lr_h2o, ratios=c(0.7,0.1))
+adult_lr_h2o_train <- adult_lr_h2o_split[[1]]
+adult_lr_h2o_validation <- adult_lr_h2o_split[[2]]
+adult_lr_h2o_test <- adult_lr_h2o_split[[3]]
+adult_lr_h2o_names <- names(adult_lr_h2o_train)[which(names(adult_lr_h2o_train)!="aw_over_50k")]
+## lambda = 0
+lr1_h2o <- h2o.glm(x=adult_lr_h2o_names, y="aw_over_50k", training_frame=adult_lr_h2o_train, family = "binomial", alpha = 1, lambda = 0)
+h2o.auc(h2o.performance(lr1_h2o, adult_lr_h2o_validation))
+## lambda = 0.1
+lr2_h2o <- h2o.glm(x=adult_lr_h2o_names, y="aw_over_50k", training_frame=adult_lr_h2o_train, family = "binomial", alpha = 1, lambda = 0.1)
+h2o.auc(h2o.performance(lr2_h2o, adult_lr_h2o_validation))
+## lambda = 0.15
+lr3_h2o <- h2o.glm(x=adult_lr_h2o_names, y="aw_over_50k", training_frame=adult_lr_h2o_train, family = "binomial", alpha = 1, lambda = 0.15)
+h2o.auc(h2o.performance(lr3_h2o, adult_lr_h2o_validation))
+## lambda = 0.3
+lr4_h2o <- h2o.glm(x=adult_lr_h2o_names, y="aw_over_50k", training_frame=adult_lr_h2o_train, family = "binomial", alpha = 1, lambda = 0.3)
+h2o.auc(h2o.performance(lr4_h2o, adult_lr_h2o_validation))
+### Any lambda lorger than 0.15 give the auc result of 0.5.
+### Using the validation data, we can tell the auc is the largest when the lambda is 0. So we use the model lr1_h2o to apply to the test data.
+phat_lr1_test_h2o <- h2o.predict(lr1_h2o, adult_lr_h2o_test)
+h2o.auc(h2o.performance(lr1_h2o, adult_lr_h2o_test))
+```
+
+LR Result Interpretation
+Here I use logistic regression (Lasso regularization) with different paramteter lambda. Lambda controls the overall strength of the penalty. We want AUC to be as large as possible, so that we need to choose a "best" lambda to achieve that. I tried several numbers from 0 to 0.5, and figure out that 0 is the best lambda to use.
+
+Note: AUC Interpretation
+AUC means area under the curve, and here the curve I use is the ROC curve (Receiver Operating Characteristic curve). Its x-axis is false positive rate, meaning the ratio between number of false positives and total number of predictions. Its y-axis is the true positive rate, meaning the ratio between number of true positives and total number of predictions. It equals to the probability that a classifier will rank a randomly chosen positive instance higher than a randomly chosen negative one. In other words, the larger the AUC, the more accurate the model and the prediction will be. This is the criterion I use to determine the goodness of a model, and to select the final model to use.
+
+Random Forest
+```{r}
+set.seed(1)
+# use r package
+library(randomForest)
+adult_train1 <- adult_train
+adult_train1[adult_train1 == "?"] <- NA
+adult_train1 <- adult_train1[complete.cases(adult_train1),]
+adult_train1$workclass <- as.factor(adult_train1$workclass)
+adult_train1$education <- as.factor(adult_train1$education)
+adult_train1$marital_status <- as.factor(adult_train1$marital_status)
+adult_train1$occupation <- as.factor(adult_train1$occupation) 
+adult_train1$relationship <- as.factor(adult_train1$relationship)
+adult_train1$race <- as.factor(adult_train1$race)
+adult_train1$sex <- as.factor(adult_train1$sex)
+adult_train1$natice_country <- as.factor(adult_train1$natice_country)
+adult_train1$aw_over_50k <- as.factor(adult_train1$aw_over_50k)
+
+adult_validation1 <- adult_validation
+adult_validation1[adult_validation1 == "?"] <- NA
+adult_validation1 <- adult_validation1[complete.cases(adult_validation1),]
+adult_validation1$workclass <- as.factor(adult_validation1$workclass)
+adult_validation1$education <- as.factor(adult_validation1$education)
+adult_validation1$marital_status <- as.factor(adult_validation1$marital_status)
+adult_validation1$occupation <- as.factor(adult_validation1$occupation) 
+adult_validation1$relationship <- as.factor(adult_validation1$relationship)
+adult_validation1$race <- as.factor(adult_validation1$race)
+adult_validation1$sex <- as.factor(adult_validation1$sex)
+adult_validation1$natice_country <- as.factor(adult_validation1$natice_country)
+adult_validation1$aw_over_50k <- as.factor(adult_validation1$aw_over_50k)
+levels(adult_validation1$natice_country) <- levels(adult_train1$natice_country)
+
+adult_test1 <- adult_test
+adult_test1[adult_test1 == "?"] <- NA
+adult_test1 <- adult_test1[complete.cases(adult_test1),]
+adult_test1$workclass <- as.factor(adult_test1$workclass)
+adult_test1$education <- as.factor(adult_test1$education)
+adult_test1$marital_status <- as.factor(adult_test1$marital_status)
+adult_test1$occupation <- as.factor(adult_test1$occupation) 
+adult_test1$relationship <- as.factor(adult_test1$relationship)
+adult_test1$race <- as.factor(adult_test1$race)
+adult_test1$sex <- as.factor(adult_test1$sex)
+adult_test1$natice_country <- as.factor(adult_test1$natice_country)
+adult_test1$aw_over_50k <- as.factor(adult_test1$aw_over_50k)
+levels(adult_test1$natice_country) <- levels(adult_train1$natice_country)
+
+## try various numbers of trees
+### 10 trees
+rf1 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=10)
+phat1_prob_rf <- predict(rf1, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat1_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred1_rf <- prediction(phat1_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred1_rf, "tpr", "fpr"), main="Random Forest (10 trees) 1")
+performance(pred1_rf, "auc")@y.values[[1]]
+#### tune the depth of the trees and the mtry
+##### maxnodes=4, mtry=5
+rf2 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=10, maxnodes=4, mtry=5)
+phat2_prob_rf <- predict(rf2, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat2_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred2_rf <- prediction(phat2_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred2_rf, "tpr", "fpr"), main="Random Forest (10 trees) 2")
+performance(pred2_rf, "auc")@y.values[[1]]
+##### maxnodes=3, mtry=2
+rf3 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=10, maxnodes=3, mtry=2)
+phat3_prob_rf <- predict(rf3, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat3_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred3_rf <- prediction(phat3_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred3_rf, "tpr", "fpr"), main="Random Forest (10 trees) 3")
+performance(pred3_rf, "auc")@y.values[[1]]
+
+### 50 trees
+rf4 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=50)
+phat4_prob_rf <- predict(rf4, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat4_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred4_rf <- prediction(phat4_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred4_rf, "tpr", "fpr"), main="Random Forest (50 trees) 1")
+performance(pred4_rf, "auc")@y.values[[1]]
+#### tune the depth of the trees and the mtry
+##### maxnodes=4, mtry=5
+rf5 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=50, maxnodes=4, mtry=5)
+phat5_prob_rf <- predict(rf5, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat5_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred5_rf <- prediction(phat5_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred5_rf, "tpr", "fpr"), main="Random Forest (50 trees) 2")
+performance(pred5_rf, "auc")@y.values[[1]]
+##### maxnodes=3, mtry=2
+rf6 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=50, maxnodes=3, mtry=2)
+phat6_prob_rf <- predict(rf6, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat6_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred6_rf <- prediction(phat6_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred6_rf, "tpr", "fpr"), main="Random Forest (50 trees) 3")
+performance(pred6_rf, "auc")@y.values[[1]]
+
+### 100 trees
+rf7 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=100)
+phat7_prob_rf <- predict(rf7, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat7_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred7_rf <- prediction(phat7_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred7_rf, "tpr", "fpr"), main="Random Forest (100 trees) 1")
+performance(pred7_rf, "auc")@y.values[[1]]
+#### tune the depth of the trees and the mtry
+##### maxnodes=4, mtry=5
+rf8 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=100, maxnodes=4, mtry=5)
+phat8_prob_rf <- predict(rf8, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat8_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred8_rf <- prediction(phat8_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred8_rf, "tpr", "fpr"), main="Random Forest (100 trees) 2")
+performance(pred8_rf, "auc")@y.values[[1]]
+##### maxnodes=3, mtry=2
+rf9 <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=100, maxnodes=3, mtry=2)
+phat9_prob_rf <- predict(rf9, adult_validation1, type="prob")[,"1"]
+table(ifelse(phat9_prob_rf > 0.5, 1, 0), adult_validation1$aw_over_50k)
+pred9_rf <- prediction(phat9_prob_rf, adult_validation1$aw_over_50k)
+plot(performance(pred9_rf, "tpr", "fpr"), main="Random Forest (100 trees) 3")
+performance(pred9_rf, "auc")@y.values[[1]]
+
+## test data
+### Using the validation data, we can tell the auc is the largest in model rf7. So we use the model rf7 to apply to the test data.
+rf7_test <- randomForest(adult_train1[,c(1:14)], adult_train1$aw_over_50k, ntree=100)
+phat7_prob_rf_test <- predict(rf7_test, adult_test1, type="prob")[,"1"]
+table(ifelse(phat7_prob_rf_test > 0.5, 1, 0), adult_test1$aw_over_50k)
+pred7_rf_test <- prediction(phat7_prob_rf_test, adult_test1$aw_over_50k)
+plot(performance(pred7_rf_test, "tpr", "fpr"), main="Random Forest (100 trees)")
+performance(pred7_rf_test, "auc")@y.values[[1]]
+
+## FP, TP tradeoff: when false positive rate is small, true positive rate is also small. If we increase false positive rate, true positive rate will also increase. When false positive rate becomes 0.4, true positive rate can reach around 0.9 and this is a relatively reasonable level.
+
+# use xgboost
+library(xgboost)
+adult_rf <- Matrix::sparse.model.matrix(aw_over_50k~.-1, data = adult)
+adult_rf_train <- adult_rf[k,]
+adult_rf_t <- adult_rf[-k,]
+adult_rf_validation <- adult_rf_t[m,]
+adult_rf_test <- adult_rf_t[-m,]
+n_proc <- parallel::detectCores()
+## 100 trees
+rf_xgb1 <- xgboost(data=adult_rf_train, label=adult_train$aw_over_50k, nthread=n_proc, nround=1, max_depth=20, num_parallel_tree=100, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb1 <- predict(rf_xgb1, newdata=adult_rf_validation)
+rocr_pred_rf_xgb1 <- prediction(phat_rf_xgb1, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb1, "auc")@y.values[[1]]
+### change parameters
+rf_xgb2 <- xgboost(data=adult_rf_train, label=adult_train$aw_over_50k, nthread=n_proc, nround=1, max_depth=30, num_parallel_tree=100, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb2 <- predict(rf_xgb2, newdata=adult_rf_validation)
+rocr_pred_rf_xgb2 <- prediction(phat_rf_xgb2, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb2, "auc")@y.values[[1]]
+
+rf_xgb3 <- xgboost(data=adult_rf_train, label=adult_train$aw_over_50k, nthread=n_proc, nround=1, max_depth=10, num_parallel_tree=100, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb3 <- predict(rf_xgb3, newdata=adult_rf_validation)
+rocr_pred_rf_xgb3 <- prediction(phat_rf_xgb3, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb3, "auc")@y.values[[1]]
+## 500 trees
+rf_xgb4 <- xgboost(data=adult_rf_train, label=ifelse(adult_train$aw_over_50k == 1, 1, 0), nthread=n_proc, nround=1, max_depth=30, num_parallel_tree=500, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb4 <- predict(rf_xgb4, newdata=adult_rf_validation)
+rocr_pred_rf_xgb4 <- prediction(phat_rf_xgb4, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb4, "auc")@y.values[[1]]
+### change parameters
+rf_xgb5 <- xgboost(data=adult_rf_train, label=ifelse(adult_train$aw_over_50k == 1, 1, 0), nthread=n_proc, nround=1, max_depth=20, num_parallel_tree=500, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb5 <- predict(rf_xgb5, newdata=adult_rf_validation)
+rocr_pred_rf_xgb5 <- prediction(phat_rf_xgb5, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb5, "auc")@y.values[[1]]
+
+rf_xgb6 <- xgboost(data=adult_rf_train, label=ifelse(adult_train$aw_over_50k == 1, 1, 0), nthread=n_proc, nround=1, max_depth=10, num_parallel_tree=500, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb6 <- predict(rf_xgb6, newdata=adult_rf_validation)
+rocr_pred_rf_xgb6 <- prediction(phat_rf_xgb6, adult_validation$aw_over_50k)
+performance(rocr_pred_rf_xgb6, "auc")@y.values[[1]]
+
+## test data
+### Using the validation data, we can tell the auc is the largest in model rf_xgb3. So we use the model rf_rfxgb3 to apply to the test data.
+rf_xgb3_test <- xgboost(data=adult_rf_train, label=adult_train$aw_over_50k, nthread=n_proc, nround=1, max_depth=10, num_parallel_tree=100, subsample=0.632, colsample_bytree=1/sqrt(length(adult_rf_train@x)/nrow(adult_rf_train)), save_period=NULL)
+phat_rf_xgb3_test <- predict(rf_xgb3_test, newdata=adult_rf_test)
+rocr_pred_rf_xgb3_test <- prediction(phat_rf_xgb3_test, adult_test$aw_over_50k)
+plot(performance(rocr_pred_rf_xgb3_test, "tpr", "fpr"), main="Random Forest (xgboost)")
+performance(rocr_pred_rf_xgb3_test, "auc")@y.values[[1]]
+
+## FP, TP tradeoff: when false positive rate is small, true positive rate is also small. If we increase false positive rate, true positive rate will also increase. When false positive rate becomes 0.4, true positive rate can reach around 0.9 and this is a relatively reasonable level.
+
+# use h2o package
+adult_rf_h2o <- h2o.importFile("/Users/apple/Desktop/adult.txt")
+colnames(adult_rf_h2o) <- c("id","age","workclass","final_weight","education","education_num","marital_status","occupation","relationship","race","sex","capital_gain","capital_loss","hours_per_week","natice_country","aw_over_50k")
+adult_rf_h2o <- adult_rf_h2o[,-1]
+adult_rf_h2o$aw_over_50k <- as.factor(adult_rf_h2o$aw_over_50k)
+adult_rf_h2o_split <- h2o.splitFrame(adult_rf_h2o, ratios=c(0.7,0.1))
+adult_rf_h2o_train <- adult_rf_h2o_split[[1]]
+adult_rf_h2o_validation <- adult_rf_h2o_split[[2]]
+adult_rf_h2o_test <- adult_rf_h2o_split[[3]]
+adult_rf_h2o_names <- names(adult_rf_h2o_train)[which(names(adult_rf_h2o_train)!="aw_over_50k")]
+rf_h2o <- h2o.randomForest(x=adult_rf_h2o_names, y="aw_over_50k", training_frame=adult_rf_h2o_train, ntrees = 100)
+h2o.auc(h2o.performance(rf_h2o, adult_rf_h2o_validation))
+
+## test data
+rf_h2o_test <- h2o.randomForest(x=adult_rf_h2o_names, y="aw_over_50k", training_frame=adult_rf_h2o_train, ntrees = 100)
+h2o.auc(h2o.performance(rf_h2o_test, adult_rf_h2o_test))
+```
+
+Random Forest Result Interpretation
+Random Forest classification is a method of classification based on a forest of trees using random inputs. I use AUC to determine the goodness of each random forest model with different parameters.
+There are three parameters that vary. Numbers of trees, depth of the trees and parameter governing the number of columns used in each split. We hope the number of trees can be large, to ensure that every input row gets predicted at least a few times. In theory, the more the number of the trees, the more accurate the result will be. The result here is also evidence of that. The results of three models with 100 threes are generally better than that of 10 trees and 50 trees. For the depth of the tree, here I control it with the nodesize (maximum one). Also we want this as large as possible. For the mtry, it means the number of variables randomly ssampled as candidates at each split.
+From the models above with different parameters, we find that the larger the number of trees, the more accurate the prediction will be. Also the result is more accurate when the tree can be grown to the maximum possible. And the default value of mtry will do the best to the model.
+
+GBM
+```{r}
+set.seed(1)
+# use r package (without early stop)
+library(gbm)
+adult_train_gbm <- adult_train1
+adult_train_gbm$aw_over_50k <- ifelse(adult_train_gbm$aw_over_50k==1,1,0)
+gbm1 <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=10,shrinkage=0.01)
+yhat_gbm1 <- predict(gbm1, adult_validation1, n.trees=100)
+table(ifelse(yhat_gbm1>0,1,0), adult_validation1$aw_over_50k)
+pred_gbm1 <- prediction(yhat_gbm1,adult_validation1$aw_over_50k)
+plot(performance(pred_gbm1, "tpr", "fpr"), main="GBM 1")
+performance(pred_gbm1, "auc")@y.values[[1]]
+
+## change parameters
+### depth=20, learning rate=0.1
+gbm2 <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=20,shrinkage=0.1)
+yhat_gbm2 <- predict(gbm2, adult_validation1, n.trees=100)
+table(ifelse(yhat_gbm2>0,1,0), adult_validation1$aw_over_50k)
+pred_gbm2 <- prediction(yhat_gbm2,adult_validation1$aw_over_50k)
+plot(performance(pred_gbm2, "tpr", "fpr"), main="GBM 2")
+performance(pred_gbm2, "auc")@y.values[[1]]
+### depth=10, learning rate=0.1
+gbm3 <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=10,shrinkage=0.1)
+yhat_gbm3 <- predict(gbm3, adult_validation1, n.trees=100)
+table(ifelse(yhat_gbm3>0,1,0), adult_validation1$aw_over_50k)
+pred_gbm3 <- prediction(yhat_gbm3,adult_validation1$aw_over_50k)
+plot(performance(pred_gbm3, "tpr", "fpr"), main="GBM 3")
+performance(pred_gbm3, "auc")@y.values[[1]]
+### depth=20, learning rate=0.001
+gbm4 <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=20,shrinkage=0.001)
+yhat_gbm4 <- predict(gbm4, adult_validation1, n.trees=100)
+table(ifelse(yhat_gbm4>0,1,0), adult_validation1$aw_over_50k)
+pred_gbm4 <- prediction(yhat_gbm4,adult_validation1$aw_over_50k)
+plot(performance(pred_gbm4, "tpr", "fpr"), main="GBM 4")
+performance(pred_gbm4, "auc")@y.values[[1]]
+### depth=5, learning rate=0.001
+gbm5 <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=5,shrinkage=0.001)
+yhat_gbm5 <- predict(gbm5, adult_validation1, n.trees=100)
+table(ifelse(yhat_gbm5>0,1,0), adult_validation1$aw_over_50k)
+pred_gbm5 <- prediction(yhat_gbm5,adult_validation1$aw_over_50k)
+plot(performance(pred_gbm5, "tpr", "fpr"), main="GBM 5")
+performance(pred_gbm5, "auc")@y.values[[1]]
+### The best model is gmb3.
+
+## test data
+gbm3_test <- gbm(aw_over_50k~., data=adult_train_gbm, distribution="bernoulli",n.trees=100,interaction.depth=10,shrinkage=0.1)
+yhat_gbm3_test <- predict(gbm3_test, adult_test1, n.trees=100)
+table(ifelse(yhat_gbm3_test>0,1,0), adult_test1$aw_over_50k)
+pred_gbm3_test <- prediction(yhat_gbm3_test,adult_test1$aw_over_50k)
+plot(performance(pred_gbm3_test, "tpr", "fpr"), main="GBM")
+performance(pred_gbm3_test, "auc")@y.values[[1]]
+
+## FP, TP trade off: when false positive rate is small, true positive rate is also small. If we increase false positive rate, true positive rate will also increase. When false positive rate becomes 0.3, true positive rate can reach around 0.9 and this is a relatively reasonable level.
+
+# use h2o package (with early stop)
+adult_gbm_h2o <- h2o.importFile("/Users/apple/Desktop/adult.txt")
+colnames(adult_gbm_h2o) <- c("id","age","workclass","final_weight","education","education_num","marital_status","occupation","relationship","race","sex","capital_gain","capital_loss","hours_per_week","natice_country","aw_over_50k")
+adult_gbm_h2o <- adult_gbm_h2o[,-1]
+adult_gbm_h2o$aw_over_50k <- as.factor(adult_gbm_h2o$aw_over_50k)
+adult_gbm_h2o_split <- h2o.splitFrame(adult_gbm_h2o, ratios=c(0.7,0.1))
+adult_gbm_h2o_train <- adult_gbm_h2o_split[[1]]
+adult_gbm_h2o_validation <- adult_gbm_h2o_split[[2]]
+adult_gbm_h2o_test <- adult_gbm_h2o_split[[3]]
+adult_gbm_h2o_names <- names(adult_gbm_h2o_train)[which(names(adult_gbm_h2o_train)!="aw_over_50k")]
+gbm_h2o <- h2o.gbm(x=adult_gbm_h2o_names, y="aw_over_50k", training_frame=adult_gbm_h2o_train, distribution = "bernoulli", ntrees = 300, max_depth = 20, learn_rate = 0.1, 
+nbins = 100, stopping_rounds = 5, stopping_tolerance = 1e-4, stopping_metric = "AUC")
+h2o.auc(h2o.performance(gbm_h2o, adult_gbm_h2o_validation))
+
+## test data
+gbm_h2o_test <- h2o.gbm(x=adult_gbm_h2o_names, y="aw_over_50k", training_frame=adult_gbm_h2o_train, distribution = "bernoulli", ntrees = 300, max_depth = 20, learn_rate = 0.1, 
+nbins = 100, stopping_rounds = 5, stopping_tolerance = 1e-4, stopping_metric = "AUC")
+h2o.auc(h2o.performance(gbm_h2o_test, adult_gbm_h2o_test))
+```
+
+GBM Result Interpretation:
+Here I use the GBM algorithm for logistic regression models with different parameters, and get the auc as a criterion to test the goodness of each of model.
+There are two parameters that vary. One is the learning rate and the other is the depth of the tree. Learning rate, as a regularization parameter, shrinks the comtribution of each new base model, so it is a way to avoid overfitting. Smaller value of learning rate (means more shrinkage) result in less overfitting while larger number of trees tends to cause overfitting. Therefore we hope the shrinkage to be small. Depth of the tree controls the number of splits the tree can have. From the result above, we can tell that the model gbm3 has the largest AUC so that depth of 10 and learning rate of 0.1 are a best combination for the model.
+Also, for the early stop, it is also to avoid overfitting, in the way that control the number of trees a model can have. Here I use AUC as a metric to determine when to do early stopping.
